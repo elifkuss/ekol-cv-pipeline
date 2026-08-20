@@ -1,0 +1,14 @@
+venv/
+env/
+*.pt
+*.onnx
+__pycache__/
+*.pyc
+.pytest_cache/
+.DS_Store
+.vscode/
+.idea/
+.env
+*.log
+*.mp4
+*.avi

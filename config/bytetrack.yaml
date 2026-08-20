@@ -1,0 +1,8 @@
+tracker_type: bytetrack # The type of tracking algorithm
+track_high_thresh: 0.5 # Minimum score for the first matching step
+track_low_thresh: 0.1 # Minimum score for the second matching step
+new_track_thresh: 0.6 # Minimum score to start a new track
+track_buffer: 30 # Number of frames to keep a lost object in memory
+match_thresh: 0.8 # Threshold for matching tracks
+fuse_score: True
+gmc_method: sparseOptFlow
