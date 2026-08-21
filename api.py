@@ -17,7 +17,7 @@ os.makedirs("output", exist_ok=True)
 def home():
     return {"message": "Ekol CV API is running!"}
 
-# DİKKAT: "async def" yerine "def" kullandık ki ağır video işleme sunucuyu kilitlemesin.
+
 @app.post("/process_video")
 def process_video(file: UploadFile = File(...)):
     """

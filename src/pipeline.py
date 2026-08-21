@@ -1,92 +1,119 @@
-import time
-import numpy as np
 import cv2
-from typing import Tuple
-from src.preprocessor import DataScrubber
-from src.tracker import EkolYOLOTracker
-from src.state_machine import WarehouseStateMachine
+import numpy as np
+import logging
+import time
+import os
+import csv
+from typing import Dict, Tuple, Optional
+from ultralytics import YOLO
 
-class PerformanceTracker:
-    """
-    This class measures the speed of the code (latency and FPS).
-    """
-    def __init__(self):
-        self.frame_times = []
-        self.success_count = 0
-        self.anomaly_count = 0
+logger = logging.getLogger("EkolCasePipeline")
 
-    def record_frame(self, latency_ms: float):
-        self.frame_times.append(latency_ms)
+class PersonTrackerModule:
 
-    def record_event(self, event_type: str):
-        if event_type == "SUCCESS":
-            self.success_count += 1
-        elif event_type == "ANOMALY_MISMATCH":
-            self.anomaly_count += 1
-
-    def generate_report(self) -> dict:
-        avg_latency = np.mean(self.frame_times) if self.frame_times else 0
-        fps = 1000 / avg_latency if avg_latency > 0 else 0
-        return {
-            "total_frames_processed": len(self.frame_times),
-            "average_latency_ms": round(avg_latency, 2),
-            "estimated_fps": round(fps, 2),
-            "successful_packagings": self.success_count,
-            "detected_anomalies": self.anomaly_count
-        }
-
-class EkolCVPipeline:
-    """
-    This is the main pipeline class that connects the scrubber, tracker, and state machine.
-    """
     def __init__(self, model_path: str = "yolov8n.pt"):
-        self.scrubber = DataScrubber()
-        self.tracker = EkolYOLOTracker(model_path=model_path)
-        self.state_machine = WarehouseStateMachine()
-        self.perf_tracker = PerformanceTracker()
+        self.model = YOLO(model_path)
 
-    def process_frame(self, frame: np.ndarray) -> np.ndarray:
-        start_time = time.time()
+    def is_worker_active(self, frame: np.ndarray) -> Tuple[bool, Optional[Tuple[int, int, int, int]]]:
+
+        results = self.model.track(source=frame, persist=True, classes=[0], verbose=False)
+        if not results or len(results) == 0 or results[0].boxes is None or len(results[0].boxes) == 0:
+            return False, None
         
-        # 1. Track objects using YOLO and ByteTrack
-        results = self.tracker.track_objects(frame)
-        
-        # 2. Blur worker faces for privacy (Data Scrubbing)
-        frame = self.scrubber.anonymize_workers(frame, results)
-        
-        # 3. Check packaging rules and state machine
+        box = results[0].boxes[0]
+        xyxy = box.xyxy.cpu().numpy().astype(int)[0]
+        return True, (xyxy[0], xyxy[1], xyxy[2], xyxy[3])
+    
+
+class ProductRecognitionModule:
+
+    def __init__(self, model_path: str = "yolov8s-world.pt"):
+        logger.info(f"YOLO-World Model yükleniyor: {model_path}")
+        self.model = YOLO(model_path)
+
+        self.model.set_classes(["shirt", "pants", "cardboard box"])
+
+    def detect_products(self, frame: np.ndarray):
+        results = self.model.track(source=frame, persist=True, verbose=False)
+        return results[0] if results else None
+    
+
+class ProductLoggingModule:
+
+    def __init__(self, output_csv_path: str = "output/product_logs.csv"):
+        self.output_csv_path = output_csv_path
+        self.active_tracks: Dict[int, dict] = {}  
+        os.makedirs(os.path.dirname(self.output_csv_path), exist_ok=True)
+        self._initialize_csv()
+
+    def _initialize_csv(self):
+
+        with open(self.output_csv_path, mode="w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow(["start_time", "end_time", "product_category", "last_bbox"])
+        logger.info(f"CSV Logger initialized at: {self.output_csv_path}")
+
+    def _map_to_case_category(self, label: str) -> str:
+        label = label.lower()
+        if "shirt" in label:
+            return "Gömlek"
+        if "pants" in label:
+            return "Pantolon"
+        return "Kutulanmiş"
+
+    def update_tracks(self, results, current_time_sec: float):
+
+        if results is None or results.boxes is None:
+            return
+
         boxes = results.boxes
-        if boxes is not None and boxes.id is not None:
-            track_ids = boxes.id.int().cpu().tolist()
-            xyxys = boxes.xyxy.cpu().numpy().astype(int)
-            class_ids = boxes.cls.int().cpu().tolist()
-            
-            for track_id, xyxy, class_id in zip(track_ids, xyxys, class_ids):
-                label = self.tracker.model.names[class_id]
-                x1, y1, x2, y2 = xyxy
-                
-                status = self.state_machine.check_packaging_zone(track_id, label, xyxy, frame.shape)
-                self.perf_tracker.record_event(status)
-                
-                # Draw boxes: Red for anomaly, Green for normal
-                color = (0, 255, 0) if status != "ANOMALY_MISMATCH" else (0, 0, 255)
-                cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
-                
-                text = f"ID {track_id}: {label.upper()}"
-                if status == "ANOMALY_MISMATCH":
-                    text += " [ERROR]"
-                elif status == "SUCCESS":
-                    text += " [OK]"
-                cv2.putText(frame, text, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+        if boxes.id is None:
+            return
+
+        track_ids = boxes.id.int().cpu().tolist()
+        xyxys = boxes.xyxy.cpu().numpy().astype(int)
+        class_ids = boxes.cls.int().cpu().tolist()
+
+        for track_id, xyxy, class_id in zip(track_ids, xyxys, class_ids):
+            label = results.names[class_id]
+            category = self._map_to_case_category(label)
+
+            if track_id not in self.active_tracks:
+                # Ürün sistemde İLK kez görüldü (Başlangıç Zamanı Tetiklendi)
+                self.active_tracks[track_id] = {
+                    "start_time": round(current_time_sec, 2),
+                    "end_time": round(current_time_sec, 2),
+                    "category": category,
+                    "last_bbox": [int(x) for x in xyxy]
+                }
+                logger.info(f"DETECTED: New {category} entered the scene! ID: {track_id}")
+            else:
+                # Ürün hala bant üzerinde (Bitiş zamanı ve son koordinatlar güncelleniyor)
+                self.active_tracks[track_id]["end_time"] = round(current_time_sec, 2)
+                self.active_tracks[track_id]["last_bbox"] = [int(x) for x in xyxy]
+
+    def finalize_lost_tracks(self, current_time_sec: float, force: bool = False, max_age_sec: float = 1.5):
+
+        lost_ids = []
+        for track_id, data in self.active_tracks.items():
+            # Eğer video bittiyse (force=True) veya nesne ekrandan çıkalı max_age_sec geçmişse
+            if force or (current_time_sec - data["end_time"]) > max_age_sec:
+                self._write_to_csv(data)
+                lost_ids.append(track_id)
         
-        # Draw active target order on screen
-        cv2.putText(
-            frame, f"WMS TARGET: {self.state_machine.active_order}", (20, 40),
-            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 165, 0), 2
-        )
-        
-        # Calculate speed metrics
-        latency_ms = (time.time() - start_time) * 1000
-        self.perf_tracker.record_frame(latency_ms)
-        
-        return frame
+        for track_id in lost_ids:
+            del self.active_tracks[track_id]
+
+    def _write_to_csv(self, track_data: dict):
+        """Veriyi CSV dosyasina ekler (append mode)."""
+        with open(self.output_csv_path, mode="a", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow([
+                f"{track_data['start_time']}s",
+                f"{track_data['end_time']}s",
+                track_data["category"],
+                str(track_data["last_bbox"])
+            ])
+        logger.info(f"LOG RECORDED -> {track_data['category']} ({track_data['start_time']}s - {track_data['end_time']}s)")
+
+
