@@ -49,15 +49,15 @@ Due to GitHub's file size limits, the pre-trained model weights (yolov8n.pt for 
 ## ✨ Core Features & How It Works
 
 ### 1. Worker Privacy and KVKK Compliance (`preprocessor.py`)
-*(A quick personal note: During our first interview, Batı Bey mentioned the company’s strong emphasis on KVKK regulations. Keeping his feedback in mind, I applied a Gaussian blur to hide the employees' faces to ensure privacy.)*
+* *(A quick personal note: During our first interview, Batı Bey mentioned the company’s strong emphasis on KVKK regulations. Keeping his feedback in mind, I applied a Gaussian blur to hide the employees' faces to ensure privacy.)*
 
 Continuous 24/7 camera recording in industrial environments can raise legal and privacy concerns. Our system detects workers in the frame and applies a real-time Gaussian Blur exclusively to their facial areas for anonymization. The products on the table remain crystal clear for analysis.
 
 ### 2. Advanced Product Recognition (`pipeline.py`)
-The system utilizes the YOLO-World model to recognize clothing (shirts, pants, etc.) and cardboard boxes. When it detects a new product, it registers the item, tracks it until it leaves the camera's view (using ByteTrack logic), and calculates the total time it remained in the system.
+* The system utilizes the YOLO-World model to recognize clothing (shirts, pants, etc.) and cardboard boxes. When it detects a new product, it registers the item, tracks it until it leaves the camera's view (using ByteTrack logic), and calculates the total time it remained in the system.
 
 ### 3. Smart Business Logic & Logging (`state_machine.py` & `pipeline.py`)
-Products are not just simply counted. The system tracks exactly when a product arrives at the table, how long it is processed, and when it leaves, second by second. Once the processing is complete, the item's data is automatically logged into the `output/product_logs.csv` file.
+* Products are not just simply counted. The system tracks exactly when a product arrives at the table, how long it is processed, and when it leaves, second by second. Once the processing is complete, the item's data is automatically logged into the `output/product_logs.csv` file.
 
 ### 4. Multi-Threaded FastAPI Servicing (`api.py`)
 * Provides a high-throughput endpoint `/process_video` that allows WMS or other external web applications to upload raw MP4 videos. Uses synchronous `def` instead of `async def` for video processing to prevent main server loop from freezing.
