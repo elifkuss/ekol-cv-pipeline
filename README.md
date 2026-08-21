@@ -51,7 +51,7 @@ Due to GitHub's file size limits, the pre-trained model weights (yolov8n.pt for 
 ### 1. Worker Privacy and KVKK Compliance (`preprocessor.py`)
 * *(A quick personal note: During our first interview, Batı Bey mentioned the company’s strong emphasis on KVKK regulations. Keeping his feedback in mind, I applied a Gaussian blur to hide the employees' faces to ensure privacy.)*
 
-Continuous 24/7 camera recording in industrial environments can raise legal and privacy concerns. Our system detects workers in the frame and applies a real-time Gaussian Blur exclusively to their facial areas for anonymization. The products on the table remain crystal clear for analysis.
+* Continuous 24/7 camera recording in industrial environments can raise legal and privacy concerns. Our system detects workers in the frame and applies a real-time Gaussian Blur exclusively to their facial areas for anonymization. The products on the table remain crystal clear for analysis.
 
 ### 2. Advanced Product Recognition (`pipeline.py`)
 * The system utilizes the YOLO-World model to recognize clothing (shirts, pants, etc.) and cardboard boxes. When it detects a new product, it registers the item, tracks it until it leaves the camera's view (using ByteTrack logic), and calculates the total time it remained in the system.
